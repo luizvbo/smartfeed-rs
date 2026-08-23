@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+
+{% block content %}
+<nav class="filter-bar" aria-label="Filter">
+  <a class="filter-tab {% if query.filter() == "all" %}active{% endif %}" href="/?filter=all&sort={{ query.sort() }}">All</a>
+  <a class="filter-tab {% if query.filter() == "opened" %}active{% endif %}" href="/?filter=opened&sort={{ query.sort() }}">Opened</a>
+</nav>
+
+<div id="news-list" class="news-list">
+  {% include "cards.html" %}
+</div>
+{% endblock %}

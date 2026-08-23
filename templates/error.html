@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+
+{% block title %}Error - SmartFeed{% endblock %}
+
+{% block content %}
+<div class="error-box">
+  <h1>Something went wrong</h1>
+  <p>{{ message }}</p>
+  <a class="button" href="/">Back to the feed</a>
+</div>
+{% endblock %}

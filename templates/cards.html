@@ -1,0 +1,9 @@
+{% for item in items %}
+{% include "item_card.html" %}
+{% endfor %}
+
+{% if has_more %}
+<a class="load-more" href="{{ next_path }}" hx-get="/items?{{ next_query }}" hx-target="this" hx-swap="outerHTML" role="button">
+  Load more
+</a>
+{% endif %}
