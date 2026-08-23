@@ -1,0 +1,43 @@
+<article class="news-card" id="item-{{ item.item.id }}">
+  <div class="card-image" role="img" aria-label="Article image">
+    {% if let Some(image_url) = item.item.image_url %}
+      <img src="{{ image_url }}" alt="" loading="lazy" onerror="this.style.display='none'">
+    {% else %}
+      <div class="image-placeholder"></div>
+    {% endif %}
+  </div>
+
+  <h2 class="card-title">
+    <a href="/read/{{ item.item.id }}" target="_blank" rel="noopener noreferrer">
+      {{ item.item.title }}
+    </a>
+  </h2>
+
+  {% if !item.summary_short().is_empty() %}
+  <p class="card-summary">{{ item.summary_short() }}</p>
+  {% endif %}
+
+  <div class="card-meta">
+    <span class="source">{{ item.item.source_feed }}</span>
+    <span class="published">{{ item.published_at_human() }}</span>
+    {% if let Some(score) = item.score_text() %}
+    <span class="score">Score: {{ score }}</span>
+    {% endif %}
+  </div>
+
+  <div class="card-actions">
+    <a class="read-more" href="/read/{{ item.item.id }}" target="_blank" rel="noopener noreferrer">Read more</a>
+
+    <form class="vote-form" method="post" action="/items/{{ item.item.id }}/vote" hx-post="/items/{{ item.item.id }}/vote" hx-target="closest .news-card" hx-swap="outerHTML">
+      <input type="hidden" name="filter" value="{{ query.filter() }}">
+      <input type="hidden" name="sort" value="{{ query.sort() }}">
+      <input type="hidden" name="page" value="{{ query.page() }}">
+      <button class="vote-btn up {% if item.upvoted() %}active{% endif %}" type="submit" name="vote" value="up" aria-label="Thumbs up">
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.96 7 8.46 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-1.91z"/></svg>
+      </button>
+      <button class="vote-btn down {% if item.downvoted() %}active{% endif %}" type="submit" name="vote" value="down" aria-label="Thumbs down">
+        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M15 3H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v1.91c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 23l6.58-6.59c.37-.37.59-.87.59-1.42V5c0-1.1-.9-2-2-2zm4 0v12h4V3h-4z"/></svg>
+      </button>
+    </form>
+  </div>
+</article>
