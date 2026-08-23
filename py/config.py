@@ -112,7 +112,10 @@ def load_config() -> Config:
 
 
 def setup_logging(level: str) -> None:
+    log_level = getattr(logging, level, logging.INFO)
     logging.basicConfig(
-        level=getattr(logging, level, logging.INFO),
+        level=log_level,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    # Ensure the root logger is set even when basicConfig was already configured.
+    logging.getLogger().setLevel(log_level)

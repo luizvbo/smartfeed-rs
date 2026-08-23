@@ -29,6 +29,15 @@ py/*.egg-info/
 py/build/
 py/dist/
 
+# pytest-cov
+.coverage
+py/.coverage
+
+# cargo-llvm-cov
+lcov.info
+cobertura.xml
+codecov.json
+
 # Live SQLite database (also covered by *.db above, listed explicitly for clarity)
 news.db
 news.db-*

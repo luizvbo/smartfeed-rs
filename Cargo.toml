@@ -5,6 +5,11 @@ edition = "2021"
 default-run = "smartfeed"
 exclude = ["py", "news.db", "news.db-*", ".venv"]
 
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+tempfile = "3"
+
 [dependencies]
 anyhow = "1"
 askama = "0.16"

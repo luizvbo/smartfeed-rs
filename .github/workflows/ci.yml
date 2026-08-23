@@ -89,4 +89,37 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - run: cargo test --all-targets --all-features
+      - uses: taiki-e/install-action@a2a5f6e99e1a31540baa0468acfa302cff0f359f # v2.86.4
+        with:
+          tool: cargo-llvm-cov,cargo-nextest
+
+      - name: Run Rust tests with coverage
+        run: cargo llvm-cov --all-features --workspace nextest --lcov --output-path lcov.info --ignore-filename-regex 'src/(main|bin/seed)\.rs' --fail-under-lines 80
+
+  python-test:
+    name: Python Tests
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@0b93645e9fea7318f78e0c49f566a43a87239f6d # v5.3.0
+        with:
+          python-version: '3.13'
+
+      - uses: astral-sh/setup-uv@f94e62d4a12df8abe8dd2084f454851cd88ac8b8 # v4.0.0
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --directory py --group dev
+
+      - name: Run Python tests with coverage
+        working-directory: py
+        run: |
+          uv run pytest \
+            --cov=config --cov=db --cov=rss --cov=embed --cov=model \
+            --cov-report=term --cov-fail-under=80 \
+            tests
