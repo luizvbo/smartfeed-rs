@@ -10,7 +10,7 @@ askama = "0.16"
 axum = { version = "0.8", features = ["macros"] }
 serde = { version = "1", features = ["derive"] }
 time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
-toasty = { version = "0.10", features = ["sqlite"] }
+toasty = { version = "0.10", default-features = false, features = ["sqlite"] }
 tokio = { version = "1", features = ["full"] }
 tower-http = { version = "0.6", features = ["fs", "trace"] }
 tracing = "0.1"
