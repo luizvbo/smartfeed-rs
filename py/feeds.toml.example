@@ -1,0 +1,14 @@
+# Copy this file to py/feeds.toml and add your own feeds.
+# Each [[feeds]] block defines one RSS/Atom feed.
+
+[[feeds]]
+url = "https://hnrss.org/frontpage"
+title = "Hacker News"
+
+[[feeds]]
+url = "https://www.theverge.com/rss/index.xml"
+title = "The Verge"
+
+[[feeds]]
+url = "https://feeds.bbci.co.uk/news/rss.xml"
+title = "BBC News"
