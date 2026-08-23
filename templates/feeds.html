@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Feeds - SmartFeed{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Feeds</h1>
+
+<ul class="feed-list">
+{% for feed in feeds %}
+  <li class="feed-item">
+    <a class="feed-url" href="{{ feed.url }}" target="_blank" rel="noopener noreferrer">
+      {{ feed.title.as_deref().unwrap_or(&feed.url) }}
+    </a>
+    <div class="feed-meta">
+      {% if let Some(status) = feed.last_status %}
+      <span class="feed-status">{{ status }}</span>
+      {% endif %}
+      {% if let Some(last_fetch) = feed.last_fetch %}
+      <span class="feed-last-fetch">{{ last_fetch }}</span>
+      {% endif %}
+    </div>
+    {% if let Some(err) = feed.error_message %}
+    <p class="feed-error">{{ err }}</p>
+    {% endif %}
+  </li>
+{% endfor %}
+</ul>
+{% endblock %}

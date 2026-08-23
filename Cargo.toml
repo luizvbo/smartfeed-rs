@@ -1,0 +1,21 @@
+[package]
+name = "smartfeed"
+version = "0.1.0"
+edition = "2021"
+default-run = "smartfeed"
+
+[dependencies]
+anyhow = "1"
+askama = "0.16"
+axum = { version = "0.8", features = ["macros"] }
+serde = { version = "1", features = ["derive"] }
+time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
+toasty = { version = "0.10", features = ["sqlite"] }
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.6", features = ["fs", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[[bin]]
+name = "seed"
+path = "src/bin/seed.rs"
