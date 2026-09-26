@@ -5,6 +5,13 @@ use serde::Deserialize;
 static DATETIME_FMT: &[time::format_description::FormatItem<'_>] =
     time::macros::format_description!("[day] [month repr:short] [year] [hour]:[minute]");
 
+fn format_unix(ts: i64) -> String {
+    time::OffsetDateTime::from_unix_timestamp(ts)
+        .ok()
+        .and_then(|dt| dt.format(DATETIME_FMT).ok())
+        .unwrap_or_else(|| ts.to_string())
+}
+
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(default)]
 pub struct QueryParams {
@@ -91,10 +98,7 @@ impl CardContext {
     }
 
     pub fn published_at_human(&self) -> String {
-        time::OffsetDateTime::from_unix_timestamp(self.item.published_at)
-            .ok()
-            .and_then(|dt| dt.format(DATETIME_FMT).ok())
-            .unwrap_or_else(|| self.item.published_at.to_string())
+        format_unix(self.item.published_at.unwrap_or(self.item.fetched_at))
     }
 
     pub fn summary_short(&self) -> String {
@@ -115,6 +119,24 @@ impl CardContext {
                 }
             }
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FeedContext {
+    pub feed: Feed,
+}
+
+impl FeedContext {
+    pub fn new(feed: Feed) -> Self {
+        Self { feed }
+    }
+
+    pub fn last_fetch_human(&self) -> String {
+        self.feed
+            .last_fetch
+            .map(format_unix)
+            .unwrap_or_else(|| "never".to_string())
     }
 }
 
@@ -157,7 +179,7 @@ pub struct DetailTemplate {
 #[derive(Template)]
 #[template(path = "feeds.html")]
 pub struct FeedsTemplate {
-    pub feeds: Vec<Feed>,
+    pub feeds: Vec<FeedContext>,
 }
 
 #[derive(Template)]

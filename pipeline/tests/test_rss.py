@@ -157,6 +157,21 @@ class TestIngestFeed:
         row = conn.execute("SELECT last_status, error_message FROM feeds WHERE url=?", (feed.url,)).fetchone()
         assert row["last_status"] == "error"
 
+    def test_skips_disabled_feed(self, conn, monkeypatch):
+        dbmod.upsert_feed(conn, "https://example.com/off.xml", "Off")
+        conn.execute(
+            "UPDATE feeds SET is_active=0 WHERE url=?",
+            ("https://example.com/off.xml",),
+        )
+        conn.commit()
+
+        def fetch(feed):
+            raise AssertionError("fetch_feed must not run for a disabled feed")
+
+        monkeypatch.setattr(rss, "fetch_feed", fetch)
+        feed = FeedConfig(url="https://example.com/off.xml", title="Off")
+        assert rss.ingest_feed(conn, feed, max_age_days=365) == 0
+
     def test_skips_old_entries(self, conn, monkeypatch):
         def old_fetch(feed):
             return SimpleNamespace(

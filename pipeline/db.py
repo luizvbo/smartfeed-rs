@@ -99,6 +99,10 @@ def init_schema(conn: sqlite3.Connection) -> None:
     cur.execute(
         "INSERT OR IGNORE INTO pipeline_state(key, value) VALUES ('last_train_at', '0')"
     )
+    cur.execute(
+        "INSERT OR IGNORE INTO pipeline_state(key, value) "
+        "VALUES ('votes_fingerprint', '0:0')"
+    )
     conn.commit()
 
 
@@ -136,6 +140,12 @@ def update_feed_status(
     )
 
 
+def is_feed_active(conn: sqlite3.Connection, url: str) -> bool:
+    """Return True unless the feed exists and is explicitly disabled."""
+    row = conn.execute("SELECT is_active FROM feeds WHERE url=?", (url,)).fetchone()
+    return row is None or bool(row[0])
+
+
 # --- news_item helpers ----------------------------------------------------
 
 
@@ -157,6 +167,7 @@ def insert_news_item(
     published_at: int | None,
 ) -> int | None:
     """Insert a news item. Returns the new id, or None if the URL already exists."""
+    ts = now()
     cur = conn.execute(
         """
         INSERT INTO news_items
@@ -164,7 +175,16 @@ def insert_news_item(
         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)
         ON CONFLICT(url) DO NOTHING
         """,
-        (title, url, source_feed, summary, image_url, published_at, now()),
+        (
+            title,
+            url,
+            source_feed,
+            summary,
+            image_url,
+            # Fall back to fetched_at when the feed omits a publish date.
+            published_at if published_at is not None else ts,
+            ts,
+        ),
     )
     if cur.rowcount == 0:
         return None

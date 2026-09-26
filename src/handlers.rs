@@ -10,8 +10,8 @@ use serde::Deserialize;
 
 use crate::models::{Feed, NewsItem, Vote};
 use crate::templates::{
-    CardContext, CardsTemplate, DetailTemplate, ErrorTemplate, FeedsTemplate, IndexTemplate,
-    ItemCardTemplate, QueryParams,
+    CardContext, CardsTemplate, DetailTemplate, ErrorTemplate, FeedContext, FeedsTemplate,
+    IndexTemplate, ItemCardTemplate, QueryParams,
 };
 
 const PAGE_SIZE: usize = 15;
@@ -265,7 +265,9 @@ pub async fn feeds(State(state): State<AppState>) -> AppResult<Html<String>> {
         .order_by((Feed::fields().title().asc(), Feed::fields().url().asc()))
         .exec(&mut db)
         .await?;
-    render(FeedsTemplate { feeds })
+    render(FeedsTemplate {
+        feeds: feeds.into_iter().map(FeedContext::new).collect(),
+    })
 }
 
 async fn list_cards(

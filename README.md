@@ -1,6 +1,6 @@
 # SmartFeed
 
-A mobile-first, server-rendered personal news reader built in Rust. It reads from a SQLite database that is shared with a separate Python data pipeline, so the Rust layer is intentionally thin and read-mostly.
+A mobile-first, server-rendered personal news reader built in Rust. It reads from a SQLite database that is shared with a companion Python data pipeline in [`pipeline/`](pipeline/), so the Rust layer is intentionally thin and read-mostly.
 
 ## Tech stack
 
@@ -31,7 +31,7 @@ The server listens on `127.0.0.1:3000` by default. Open http://127.0.0.1:3000 in
 
 ## Seeding sample data
 
-Because the Python pipeline is not part of this repo, a seed binary is provided to insert sample rows so the UI is visible immediately:
+If you have not run the Python pipeline yet (see `pipeline/README.md` for ingestion and scoring), a seed binary is provided to insert sample rows so the UI is visible immediately:
 
 ```bash
 cargo run --bin seed

@@ -10,46 +10,40 @@ except to read it for training.
 ## Layout
 
 ```
-py/
+pipeline/
 ├── main.py             # entry point / CLI
 ├── config.py           # env + feeds.toml loading
 ├── db.py               # SQLite schema and helpers
 ├── rss.py              # feed fetching and parsing
 ├── embed.py            # sentence-transformer embeddings + cache
 ├── model.py            # centroid / logistic preference model
-├── pyproject.toml      # pip install -e py/
-├── requirements.txt    # alternative flat dependency list
+├── pyproject.toml      # project metadata + dependencies (uv)
+├── uv.lock             # locked dependency versions
 ├── feeds.toml.example  # copy to feeds.toml and edit
 └── README.md
 ```
 
 ## Install
 
-Either install the dependencies directly:
+Dependencies are managed with [uv](https://docs.astral.sh/uv/). From the repo
+root:
 
 ```bash
-pip install -r py/requirements.txt
-```
-
-or install the project in editable mode (also pulls in the same deps):
-
-```bash
-pip install -e py/
+uv sync --directory pipeline            # runtime deps
+uv sync --directory pipeline --group dev  # + pytest for tests
 ```
 
 For the optional logistic scoring strategy, also install scikit-learn:
 
 ```bash
-pip install "scikit-learn>=1.4"
-# or
-pip install -e "py/[logistic]"
+uv sync --directory pipeline --extra logistic
 ```
 
 ## Configure feeds
 
 ```bash
-cp py/feeds.toml.example py/feeds.toml
-$EDITOR py/feeds.toml
+cp pipeline/feeds.toml.example pipeline/feeds.toml
+$EDITOR pipeline/feeds.toml
 ```
 
 Each `[[feeds]]` block takes a `url` (required) and an optional `title`:
@@ -62,29 +56,31 @@ title = "Hacker News"
 
 ## Run
 
-Run from the **repository root** (not from inside `py/`):
+Run from the **repository root** (not from inside `pipeline/`):
 
 ```bash
-python py/main.py                 # run once
-python py/main.py --loop 300      # loop every 300 seconds
-python py/main.py --retrain       # force retrain of the preference model
-python py/main.py --dry-run       # do not write to the DB
+uv run --directory pipeline python pipeline/main.py                 # run once
+uv run --directory pipeline python pipeline/main.py --loop 300      # loop every 300 seconds
+uv run --directory pipeline python pipeline/main.py --retrain       # force retrain
+uv run --directory pipeline python pipeline/main.py --dry-run       # no DB writes
 ```
 
+Or activate `pipeline/.venv` and run `python pipeline/main.py` directly.
+
 Running from the repo root makes the default database path `news.db` resolve
-correctly next to the Rust app. If you run from inside `py/`, the default
+correctly next to the Rust app. If you run from inside `pipeline/`, the default
 becomes `../news.db`. You can always override with the `DB_PATH` environment
 variable:
 
 ```bash
-DB_PATH=/path/to/news.db python py/main.py
+DB_PATH=/path/to/news.db uv run --directory pipeline python pipeline/main.py
 ```
 
 ## Environment variables
 
-| Variable           | Default                                 | Description                                             |
-| ------------------ | --------------------------------------- | ------------------------------------------------------- |
-| `DB_PATH`          | `news.db` (or `../news.db` from `py/`)  | SQLite database file                                    |
+| Variable           | Default                                       | Description                                             |
+| ------------------ | --------------------------------------------- | ------------------------------------------------------- |
+| `DB_PATH`          | `news.db` (or `../news.db` from `pipeline/`)  | SQLite database file                                    |
 | `MODEL_NAME`       | `paraphrase-multilingual-MiniLM-L12-v2` | sentence-transformers model name                        |
 | `BATCH_SIZE`       | `32`                                    | embedding batch size                                    |
 | `MAX_AGE_DAYS`     | `30`                                    | skip feed entries older than this                       |
@@ -92,8 +88,8 @@ DB_PATH=/path/to/news.db python py/main.py
 | `LOG_LEVEL`        | `INFO`                                  | logging level                                           |
 | `SCORING_METHOD`   | `centroid`                              | `centroid` (default) or `logistic` (needs scikit-learn) |
 
-`python-dotenv` is supported: put variables in `py/.env` and they will be
-loaded automatically when running the pipeline.
+`python-dotenv` is supported: put variables in `pipeline/.env` and they will
+be loaded automatically when running the pipeline.
 
 ## Database
 
@@ -122,17 +118,18 @@ of the cached embeddings.
 - Falls back gracefully when only one side has votes, or when there are no
   votes yet (score = 0).
 
-Centroids are cached as `.npy` files in `py/.cache/`.
+Centroids are cached as `.npy` files in `pipeline/.cache/`.
 
 ### Logistic scoring (optional, needs scikit-learn)
 
 Set `SCORING_METHOD=logistic`. Fits a `LogisticRegression` on the voted
 embeddings and uses `predict_proba` for the `up` class as the score. The
-classifier is pickled into `py/.cache/`. Centroids are still refreshed as a
+classifier is pickled into `pipeline/.cache/`. Centroids are still refreshed as a
 fallback scorer.
 
-Retraining is skipped unless new votes have arrived since `last_train_at`,
-`RETRAIN_INTERVAL` has elapsed, or `--retrain` is passed.
+Retraining is skipped unless the votes table changed since the last run
+(inserted, changed, or deleted votes — tracked via a `votes_fingerprint` key
+in `pipeline_state`), `RETRAIN_INTERVAL` has elapsed, or `--retrain` is passed.
 
 ## Shared schema with the Rust app
 

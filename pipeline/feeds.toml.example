@@ -1,4 +1,4 @@
-# Copy this file to py/feeds.toml and add your own feeds.
+# Copy this file to pipeline/feeds.toml and add your own feeds.
 # Each [[feeds]] block defines one RSS/Atom feed.
 
 [[feeds]]

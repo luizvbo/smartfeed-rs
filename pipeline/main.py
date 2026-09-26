@@ -2,10 +2,10 @@
 
 Run from the repository root:
 
-    python py/main.py                 # run once
-    python py/main.py --loop 300      # loop every 300 seconds
-    python py/main.py --retrain       # force retrain
-    python py/main.py --dry-run       # do not write to DB
+    python pipeline/main.py                 # run once
+    python pipeline/main.py --loop 300      # loop every 300 seconds
+    python pipeline/main.py --retrain       # force retrain
+    python pipeline/main.py --dry-run       # do not write to DB
 
 The pipeline:
   1. Ingests configured RSS/Atom feeds into ``news_items``.
@@ -22,8 +22,9 @@ import sys
 import time
 from pathlib import Path
 
-# Allow running as `python py/main.py` from the repo root by adding py/ to
-# sys.path so sibling modules (config, db, rss, embed, model) are importable.
+# Allow running as `python pipeline/main.py` from the repo root by adding
+# pipeline/ to sys.path so sibling modules (config, db, rss, embed, model) are
+# importable.
 PY_DIR = Path(__file__).resolve().parent
 if str(PY_DIR) not in sys.path:
     sys.path.insert(0, str(PY_DIR))

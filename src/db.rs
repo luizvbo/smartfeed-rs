@@ -19,6 +19,14 @@ pub async fn init_db(url: &str) -> anyhow::Result<toasty::Db> {
         .context("failed to enable WAL mode")?;
     tracing::info!("enabled SQLite WAL mode");
 
+    // Wait instead of erroring with SQLITE_BUSY while the pipeline holds a
+    // write transaction (e.g. during ingestion or scoring).
+    toasty::sql::query("PRAGMA busy_timeout=30000;")
+        .exec(&mut db)
+        .await
+        .context("failed to set busy_timeout")?;
+    tracing::info!("set SQLite busy_timeout");
+
     ensure_schema(&mut db).await?;
 
     Ok(db)
@@ -79,7 +87,7 @@ const NEWS_ITEMS_DDL: &[&str] = &[
     "source_feed" TEXT NOT NULL,
     "summary" TEXT,
     "image_url" TEXT,
-    "published_at" BIGINT NOT NULL,
+    "published_at" BIGINT,
     "fetched_at" BIGINT NOT NULL,
     "model_score" REAL,
     "opened_at" BIGINT

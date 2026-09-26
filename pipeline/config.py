@@ -1,8 +1,8 @@
 """Configuration loading for the SmartFeed Python pipeline.
 
-Reads environment variables and ``py/feeds.toml``. The pipeline is intended to
-be run from the repository root (``python py/main.py``), so paths default to
-that layout. ``DB_PATH`` can always be overridden.
+Reads environment variables and ``pipeline/feeds.toml``. The pipeline is
+intended to be run from the repository root (``python pipeline/main.py``), so
+paths default to that layout. ``DB_PATH`` can always be overridden.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-# py/ directory regardless of the current working directory.
+# pipeline/ directory regardless of the current working directory.
 PY_DIR = Path(__file__).resolve().parent
 REPO_ROOT = PY_DIR.parent
 
@@ -45,7 +45,7 @@ def _default_db_path() -> str:
     """Pick a sensible default SQLite path.
 
     If the user runs from the repo root, ``news.db`` is correct. If they run
-    from inside ``py/``, ``../news.db`` is correct. ``DB_PATH`` always wins.
+    from inside ``pipeline/``, ``../news.db`` is correct. ``DB_PATH`` always wins.
     """
     cwd = Path.cwd()
     if cwd.resolve() == PY_DIR.resolve():
@@ -91,6 +91,10 @@ def _load_feeds(path: Path) -> list[FeedConfig]:
 
 def load_config() -> Config:
     """Build a :class:`Config` from environment variables and feeds.toml."""
+    from dotenv import load_dotenv
+
+    load_dotenv(PY_DIR / ".env")
+
     db_path = os.environ.get("DB_PATH") or _default_db_path()
     scoring_method = (
         (os.environ.get("SCORING_METHOD") or DEFAULT_SCORING_METHOD).strip().lower()

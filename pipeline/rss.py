@@ -20,6 +20,7 @@ from bs4 import BeautifulSoup
 from config import USER_AGENT, FeedConfig
 from db import (
     insert_news_item,
+    is_feed_active,
     update_feed_status,
     upsert_feed,
     url_exists,
@@ -183,6 +184,9 @@ def fetch_feed(feed: FeedConfig, timeout: float = 20.0) -> tuple[Any, str]:
 def ingest_feed(conn, feed: FeedConfig, max_age_days: int) -> int:
     """Ingest a single feed. Returns the number of new items inserted."""
     upsert_feed(conn, feed.url, feed.title)
+    if not is_feed_active(conn, feed.url):
+        log.info("feed %s is disabled in the database; skipping", feed.url)
+        return 0
     try:
         parsed, _ = fetch_feed(feed)
     except Exception as exc:  # noqa: BLE001 - any fetch/parse failure is recoverable

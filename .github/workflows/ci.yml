@@ -114,10 +114,10 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --directory py --group dev
+        run: uv sync --directory pipeline --group dev
 
       - name: Run Python tests with coverage
-        working-directory: py
+        working-directory: pipeline
         run: |
           uv run pytest \
             --cov=config --cov=db --cov=rss --cov=embed --cov=model \

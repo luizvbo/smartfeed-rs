@@ -35,6 +35,17 @@ class TestFeeds:
         assert row["last_status"] == "ok"
         assert row["error_message"] is None
 
+    def test_is_feed_active(self, conn):
+        dbmod.upsert_feed(conn, "https://example.com/feed.xml", "Example")
+        assert dbmod.is_feed_active(conn, "https://example.com/feed.xml") is True
+        conn.execute(
+            "UPDATE feeds SET is_active=0 WHERE url=?",
+            ("https://example.com/feed.xml",),
+        )
+        assert dbmod.is_feed_active(conn, "https://example.com/feed.xml") is False
+        # Unknown feeds are treated as active so first ingest still registers them.
+        assert dbmod.is_feed_active(conn, "https://example.com/missing.xml") is True
+
 
 class TestNewsItems:
     def test_insert_and_url_exists(self, conn):
@@ -72,6 +83,24 @@ class TestNewsItems:
             published_at=1234567890,
         )
         assert inserted is None
+
+    def test_insert_without_published_at_falls_back_to_fetched_at(self, conn):
+        dbmod.upsert_feed(conn, "https://example.com/feed.xml", "Example")
+        inserted = dbmod.insert_news_item(
+            conn,
+            title="Hello",
+            url="https://example.com/nodate",
+            source_feed="https://example.com/feed.xml",
+            summary=None,
+            image_url=None,
+            published_at=None,
+        )
+        assert inserted is not None
+        row = conn.execute(
+            "SELECT published_at, fetched_at FROM news_items WHERE id=?", (inserted,)
+        ).fetchone()
+        assert row["published_at"] is not None
+        assert row["published_at"] == row["fetched_at"]
 
     def test_get_item_text(self, conn):
         dbmod.upsert_feed(conn, "https://example.com/feed.xml", "Example")

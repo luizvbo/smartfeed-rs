@@ -29,11 +29,11 @@ class TestEnvInt:
 class TestDefaultDbPath:
     def test_repo_root_defaults_to_news_db(self, monkeypatch, tmp_path):
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr(config, "PY_DIR", tmp_path / "py")
+        monkeypatch.setattr(config, "PY_DIR", tmp_path / "pipeline")
         assert config._default_db_path() == "news.db"
 
     def test_py_dir_defaults_to_parent(self, monkeypatch, tmp_path):
-        py_dir = tmp_path / "py"
+        py_dir = tmp_path / "pipeline"
         py_dir.mkdir()
         monkeypatch.chdir(py_dir)
         monkeypatch.setattr(config, "PY_DIR", py_dir)

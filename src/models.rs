@@ -16,7 +16,7 @@ pub struct NewsItem {
 
     pub image_url: Option<String>,
 
-    pub published_at: i64,
+    pub published_at: Option<i64>,
 
     pub fetched_at: i64,
 

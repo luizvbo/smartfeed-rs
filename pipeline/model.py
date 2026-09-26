@@ -10,7 +10,7 @@ Two strategies are supported:
 * ``logistic`` (optional, requires scikit-learn): fits a LogisticRegression
   on the voted embeddings and uses ``predict_proba`` for the "up" class.
 
-Centroid artifacts are stored as ``.npy`` files in ``py/.cache/``. The
+Centroid artifacts are stored as ``.npy`` files in ``pipeline/.cache/``. The
 logistic classifier is pickled into the same directory.
 """
 
@@ -173,6 +173,18 @@ def _score_logistic(emb: np.ndarray, clf) -> float:
 # --- public API -----------------------------------------------------------
 
 
+def _votes_fingerprint(conn: sqlite3.Connection) -> str:
+    """Fingerprint of the votes table: ``count:newest_created_at``.
+
+    Inserts and vote changes bump ``MAX(created_at)``; deletions shrink the
+    count, so any vote mutation — including un-voting — is detected.
+    """
+    row = conn.execute(
+        "SELECT COUNT(*), COALESCE(MAX(created_at), 0) FROM votes"
+    ).fetchone()
+    return f"{row[0]}:{row[1]}"
+
+
 def should_retrain(conn: sqlite3.Connection, cfg: Config, force: bool) -> bool:
     if force:
         return True
@@ -181,11 +193,10 @@ def should_retrain(conn: sqlite3.Connection, cfg: Config, force: bool) -> bool:
     if cfg.retrain_interval > 0:
         if time.time() - last_ts >= cfg.retrain_interval:
             return True
-    # We treat "new votes since last_train_at" as the trigger.
-    from db import count_votes_since
-
-    new_votes = count_votes_since(conn, last_ts)
-    return new_votes > 0
+    # Retrain whenever the votes table differs from the fingerprint stored by
+    # train() — covers new votes, changed votes, and deletions.
+    stored = get_state(conn, "votes_fingerprint") or "0:0"
+    return stored != _votes_fingerprint(conn)
 
 
 def train(conn: sqlite3.Connection, cfg: Config) -> bool:
@@ -195,6 +206,7 @@ def train(conn: sqlite3.Connection, cfg: Config) -> bool:
     else:
         ok = _train_centroid(conn, cfg)
     set_state(conn, "last_train_at", str(int(time.time())))
+    set_state(conn, "votes_fingerprint", _votes_fingerprint(conn))
     conn.commit()
     log.info("training complete; last_train_at updated")
     return ok

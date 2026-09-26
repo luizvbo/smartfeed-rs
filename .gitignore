@@ -22,16 +22,16 @@ target
 __pycache__/
 *.py[cod]
 .venv/
-py/.venv/
-py/.env
-py/.cache/
-py/*.egg-info/
-py/build/
-py/dist/
+pipeline/.venv/
+pipeline/.env
+pipeline/.cache/
+pipeline/*.egg-info/
+pipeline/build/
+pipeline/dist/
 
 # pytest-cov
 .coverage
-py/.coverage
+pipeline/.coverage
 
 # cargo-llvm-cov
 lcov.info

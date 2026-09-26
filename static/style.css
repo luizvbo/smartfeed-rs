@@ -87,6 +87,13 @@ img {
   border-color: #1a73e8;
 }
 
+.filter-sep {
+  width: 1px;
+  align-self: stretch;
+  background: #ddd;
+  margin: 0 0.25rem;
+}
+
 /* News list */
 .news-list {
   display: grid;

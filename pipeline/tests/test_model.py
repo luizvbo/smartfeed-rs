@@ -111,8 +111,22 @@ class TestShouldRetrain:
         conn.commit()
         assert should_retrain(conn, cfg, force=False) is True
 
+    def test_unchanged_votes_after_train(self, conn, tmp_path):
+        _insert_voted_item(conn, "https://example.com/up1", "up")
+        cfg = _make_cfg(cache_dir=tmp_path)
+        train(conn, cfg)
+        assert should_retrain(conn, cfg, force=False) is False
 
-class TestTrainCentroid:
+    def test_vote_deletion_triggers_retrain(self, conn, tmp_path):
+        _insert_voted_item(conn, "https://example.com/up1", "up")
+        cfg = _make_cfg(cache_dir=tmp_path)
+        train(conn, cfg)
+        conn.execute("DELETE FROM votes")
+        conn.commit()
+        assert should_retrain(conn, cfg, force=False) is True
+
+
+class TestTrain:
     def test_train_sets_state(self, conn, tmp_path):
         _insert_voted_item(conn, "https://example.com/up1", "up")
         cfg = _make_cfg(cache_dir=tmp_path, scoring_method="centroid")
