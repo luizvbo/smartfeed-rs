@@ -91,7 +91,12 @@ async fn items_fragment_returns_cards() {
     let app = test_router(db);
 
     let response = app
-        .oneshot(Request::builder().uri("/items").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/items")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
 
@@ -223,7 +228,12 @@ async fn feeds_returns_feeds_list() {
     let app = test_router(db);
 
     let response = app
-        .oneshot(Request::builder().uri("/feeds").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::builder()
+                .uri("/feeds")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
 
