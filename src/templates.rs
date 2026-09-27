@@ -97,6 +97,16 @@ impl CardContext {
         self.item.model_score.map(|s| format!("{:.2}", s))
     }
 
+    /// True when the pipeline's exploration step boosted this item's
+    /// `rank_score` above its real `model_score` — the card shows a subtle
+    /// badge while "Score:" keeps displaying the true model score.
+    pub fn exploring(&self) -> bool {
+        match self.item.rank_score {
+            Some(rank) => rank > self.item.model_score.unwrap_or(f64::MIN) + 0.001,
+            None => false,
+        }
+    }
+
     pub fn published_at_human(&self) -> String {
         format_unix(self.item.published_at.unwrap_or(self.item.fetched_at))
     }
@@ -149,6 +159,7 @@ pub struct IndexTemplate {
     pub next_page: usize,
     pub next_path: String,
     pub next_query: String,
+    pub explore_pct: f64,
 }
 
 #[derive(Template)]

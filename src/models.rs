@@ -22,6 +22,11 @@ pub struct NewsItem {
 
     pub model_score: Option<f64>,
 
+    /// Ranking score used for the "Top score" sort. Written by the Python
+    /// pipeline; may differ from `model_score` when the item was boosted by
+    /// the epsilon-greedy exploration step.
+    pub rank_score: Option<f64>,
+
     pub opened_at: Option<i64>,
 }
 

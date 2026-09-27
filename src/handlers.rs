@@ -97,6 +97,7 @@ pub async fn index(
     let mut db = state.db.as_ref().clone();
     let query = query.normalize();
     let (items, has_more) = list_cards(&mut db, &query).await?;
+    let explore_pct = read_explore_pct(&mut db).await;
     let next_page = query.page() + 1;
     let next_path = query.path_for(next_page);
     let next_query = query.query_for(next_page);
@@ -107,6 +108,7 @@ pub async fn index(
         next_page,
         next_path,
         next_query,
+        explore_pct,
     })
 }
 
@@ -270,6 +272,60 @@ pub async fn feeds(State(state): State<AppState>) -> AppResult<Html<String>> {
     })
 }
 
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct FeedForm {
+    pub url: String,
+}
+
+/// `POST /feeds` — register a feed URL. The pipeline picks it up on its next
+/// run (`feeds.toml` feeds and app-added feeds share the `feeds` table).
+pub async fn add_feed(
+    State(state): State<AppState>,
+    Form(form): Form<FeedForm>,
+) -> AppResult<Response> {
+    let url = form.url.trim();
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err(AppError::bad_request(
+            "feed url must start with http:// or https://",
+        ));
+    }
+
+    let mut db = state.db.as_ref().clone();
+    Feed::upsert_by_url(url)
+        .is_active(true)
+        .exec(&mut db)
+        .await
+        .context("failed to upsert feed")?;
+    tracing::info!(%url, "feed added via app");
+
+    Ok(Redirect::to("/feeds").into_response())
+}
+
+/// `POST /feeds/{id}/toggle` — flip `feeds.is_active`; the pipeline skips
+/// disabled feeds when ingesting.
+pub async fn toggle_feed(
+    State(state): State<AppState>,
+    Path(id): Path<u64>,
+) -> AppResult<Response> {
+    let mut db = state.db.as_ref().clone();
+    let mut feed = Feed::filter_by_id(id)
+        .first()
+        .exec(&mut db)
+        .await?
+        .ok_or_else(|| AppError::not_found("feed not found"))?;
+
+    let new_state = !feed.is_active;
+    toasty::update!(feed {
+        is_active: new_state
+    })
+    .exec(&mut db)
+    .await?;
+    tracing::info!(feed_id = id, is_active = new_state, "feed toggled");
+
+    Ok(Redirect::to("/feeds").into_response())
+}
+
 async fn list_cards(
     db: &mut toasty::Db,
     query: &QueryParams,
@@ -293,28 +349,195 @@ async fn list_cards(
             (page_items, total)
         }
         _ => {
-            let mut q = NewsItem::all();
-            match query.sort() {
-                "score" => {
-                    q = q.order_by((
-                        NewsItem::fields().model_score().desc(),
-                        NewsItem::fields().fetched_at().desc(),
-                    ));
-                }
-                _ => {
-                    q = q.order_by(NewsItem::fields().fetched_at().desc());
-                }
-            }
-            q = q.limit(PAGE_SIZE).offset(offset);
-            let items: Vec<NewsItem> = q.exec(db).await?;
-            let total: u64 = NewsItem::all().count().exec(db).await?;
-            (items, total as usize)
+            // filter=all hides already-voted items; filter=voted shows them.
+            list_items_page(db, query, offset, query.filter() == "voted").await?
         }
     };
 
     let cards = build_cards(db, items).await?;
     let has_more = offset + cards.len() < total;
     Ok((cards, has_more))
+}
+
+/// Paginated listing for `filter=all` / `filter=voted`.
+///
+/// `filter=all` excludes items that already have a vote (either direction —
+/// rated items don't need to resurface in the default feed); `filter=voted`
+/// shows only them. Raw SQL provides the ordered id page because toasty
+/// can't express `NOT EXISTS` or `COALESCE` ordering — the rank order is
+/// pipeline-owned (`rank_score`, falling back to `model_score`).
+async fn list_items_page(
+    db: &mut toasty::Db,
+    query: &QueryParams,
+    offset: usize,
+    voted: bool,
+) -> AppResult<(Vec<NewsItem>, usize)> {
+    let exists = if voted { "EXISTS" } else { "NOT EXISTS" };
+    let where_clause = format!("{exists} (SELECT 1 FROM votes v WHERE v.news_item_id = ni.id)");
+    let order = if query.sort() == "score" {
+        "ORDER BY COALESCE(ni.rank_score, ni.model_score) DESC, ni.fetched_at DESC"
+    } else {
+        "ORDER BY ni.fetched_at DESC"
+    };
+
+    let rows = toasty::sql::query(format!(
+        "SELECT ni.id FROM news_items ni WHERE {where_clause} {order} LIMIT ?1 OFFSET ?2"
+    ))
+    .bind(PAGE_SIZE as i64)
+    .bind(offset as i64)
+    .exec(db)
+    .await
+    .context("failed to list news items")?;
+
+    let ids: Vec<u64> = rows
+        .iter()
+        .filter_map(|row| {
+            row.as_record()
+                .and_then(|record| record.first())
+                .and_then(value_to_u64)
+        })
+        .collect();
+
+    let total_rows = toasty::sql::query(format!(
+        "SELECT COUNT(*) FROM news_items ni WHERE {where_clause}"
+    ))
+    .exec(db)
+    .await
+    .context("failed to count news items")?;
+    let total = total_rows
+        .first()
+        .and_then(|row| row.as_record())
+        .and_then(|record| record.first())
+        .and_then(value_to_u64)
+        .unwrap_or(0) as usize;
+
+    let items = items_in_id_order(db, ids).await?;
+    Ok((items, total))
+}
+
+/// Hydrate NewsItems for an ordered id list, preserving the SQL order.
+async fn items_in_id_order(db: &mut toasty::Db, ids: Vec<u64>) -> AppResult<Vec<NewsItem>> {
+    if ids.is_empty() {
+        return Ok(vec![]);
+    }
+    let mut items: Vec<NewsItem> = NewsItem::filter(NewsItem::fields().id().in_list(ids.clone()))
+        .exec(db)
+        .await?;
+    let order: HashMap<u64, usize> = ids.iter().enumerate().map(|(pos, id)| (*id, pos)).collect();
+    items.sort_by_key(|item| order.get(&item.id).copied().unwrap_or(usize::MAX));
+    Ok(items)
+}
+
+fn value_to_u64(value: &toasty::stmt::Value) -> Option<u64> {
+    use toasty::stmt::Value as V;
+    match value {
+        V::I64(v) => u64::try_from(*v).ok(),
+        V::U64(v) => Some(*v),
+        V::I32(v) => u64::try_from(*v).ok(),
+        V::U32(v) => Some(u64::from(*v)),
+        _ => None,
+    }
+}
+
+const DEFAULT_EXPLORE_PCT: f64 = 10.0;
+
+/// Current `explore_pct` setting shared with the pipeline via
+/// `pipeline_state`. Falls back to the default when the pipeline has not
+/// created the table/key yet.
+async fn read_explore_pct(db: &mut toasty::Db) -> f64 {
+    let table = toasty::sql::query(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='pipeline_state'",
+    )
+    .exec(db)
+    .await;
+    if !matches!(table, Ok(rows) if !rows.is_empty()) {
+        return DEFAULT_EXPLORE_PCT;
+    }
+
+    let rows = toasty::sql::query("SELECT value FROM pipeline_state WHERE key='explore_pct'")
+        .exec(db)
+        .await;
+
+    rows.ok()
+        .and_then(|r| r.first().cloned())
+        .and_then(|row| row.as_record().and_then(|rec| rec.first().cloned()))
+        .and_then(|value| value.as_str().map(String::from))
+        .and_then(|s| s.parse::<f64>().ok())
+        .filter(|v| (0.0..=100.0).contains(v))
+        .unwrap_or(DEFAULT_EXPLORE_PCT)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+pub struct SettingsForm {
+    pub explore_pct: f64,
+    pub filter: String,
+    pub sort: String,
+    /// Set by the "Rescore now" button — the pipeline clears the flag and
+    /// forces retrain+score on its next loop iteration.
+    pub rescore: u8,
+}
+
+impl Default for SettingsForm {
+    fn default() -> Self {
+        Self {
+            explore_pct: DEFAULT_EXPLORE_PCT,
+            filter: "all".to_string(),
+            sort: "new".to_string(),
+            rescore: 0,
+        }
+    }
+}
+
+/// `POST /settings` — persists app-tunable settings for the pipeline into
+/// `pipeline_state` (`explore_pct`: percent of low-ranked items boosted into
+/// the score-sorted feed by the epsilon-greedy exploration step).
+pub async fn update_settings(
+    State(state): State<AppState>,
+    Form(form): Form<SettingsForm>,
+) -> AppResult<Response> {
+    if !form.explore_pct.is_finite() || !(0.0..=100.0).contains(&form.explore_pct) {
+        return Err(AppError::bad_request(
+            "explore_pct must be between 0 and 100",
+        ));
+    }
+
+    let mut db = state.db.as_ref().clone();
+    // pipeline_state is Python-owned; create it if the pipeline has not run yet.
+    toasty::sql::statement(
+        "CREATE TABLE IF NOT EXISTS pipeline_state (key TEXT PRIMARY KEY, value TEXT)",
+    )
+    .exec(&mut db)
+    .await
+    .context("failed to ensure pipeline_state")?;
+    toasty::sql::statement(
+        "INSERT INTO pipeline_state(key, value) VALUES ('explore_pct', ?1) \
+         ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+    )
+    .bind(format!("{:.4}", form.explore_pct))
+    .exec(&mut db)
+    .await
+    .context("failed to save explore_pct")?;
+
+    tracing::info!(explore_pct = %form.explore_pct, "updated exploration setting");
+
+    if form.rescore == 1 {
+        toasty::sql::statement(
+            "INSERT INTO pipeline_state(key, value) VALUES ('rescore_requested', '1') \
+             ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        )
+        .exec(&mut db)
+        .await
+        .context("failed to request rescore")?;
+        tracing::info!("rescore requested for the next pipeline run");
+    }
+
+    let query = QueryParams {
+        filter: form.filter,
+        sort: form.sort,
+        page: 1,
+    };
+    Ok(Redirect::to(&query.path_for(1)).into_response())
 }
 
 async fn load_card(db: &mut toasty::Db, id: u64) -> AppResult<CardContext> {

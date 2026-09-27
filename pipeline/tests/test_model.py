@@ -239,3 +239,120 @@ class TestScoreAndLogistic:
         row = conn.execute("SELECT model_score FROM news_items WHERE id=?", (item_id,)).fetchone()
         assert scored == 1
         assert abs(row[0] - 0.8) < 1e-9
+
+
+class TestApplyExploration:
+    def _seed_items(self, conn, scores, votes=None):
+        dbmod.upsert_feed(conn, "https://example.com/feed.xml", "Example")
+        ids = []
+        for i, score in enumerate(scores):
+            dbmod.insert_news_item(
+                conn,
+                title="T",
+                url=f"https://example.com/i{i}",
+                source_feed="https://example.com/feed.xml",
+                summary=None,
+                image_url=None,
+                published_at=1,
+            )
+            item_id = conn.execute(
+                "SELECT id FROM news_items WHERE url=?",
+                (f"https://example.com/i{i}",),
+            ).fetchone()[0]
+            if score is not None:
+                dbmod.update_model_score(conn, item_id, score)
+            ids.append(item_id)
+        for idx, vote in (votes or {}).items():
+            conn.execute(
+                "INSERT INTO votes(news_item_id, vote, created_at) VALUES (?, ?, 100)",
+                (ids[idx], vote),
+            )
+        conn.commit()
+        return ids
+
+    def _rank(self, conn, item_id):
+        return conn.execute(
+            "SELECT rank_score FROM news_items WHERE id=?", (item_id,)
+        ).fetchone()[0]
+
+    def test_boosts_fraction_of_eligible_items(self, conn):
+        import random
+
+        # 10 unvoted items; median of scores = 0.6 → eligible = {0.1..0.5}.
+        ids = self._seed_items(conn, [i / 10 for i in range(1, 11)])
+        dbmod.set_state(conn, "explore_pct", "40")
+        conn.commit()
+
+        boosted = model.apply_exploration(conn, rng=random.Random(7))
+        assert boosted == 2  # round(5 * 40%)
+
+        boosted_ids = [
+            r[0]
+            for r in conn.execute(
+                "SELECT id FROM news_items WHERE rank_score > model_score + 0.001"
+            ).fetchall()
+        ]
+        assert len(boosted_ids) == 2
+        # Boosted items come only from the eligible (below-median) pool and
+        # land in the top-decile range (0.9..1.0).
+        for item_id in boosted_ids:
+            model_score = conn.execute(
+                "SELECT model_score FROM news_items WHERE id=?", (item_id,)
+            ).fetchone()[0]
+            assert model_score < 0.6
+            assert 0.9 <= self._rank(conn, item_id) <= 1.0
+        # Non-boosted items mirror their model score.
+        for i, item_id in enumerate(ids, start=1):
+            if item_id not in boosted_ids:
+                assert abs(self._rank(conn, item_id) - i / 10) < 1e-9
+
+    def test_only_eligible_items_touched(self, conn):
+        import random
+
+        # index 0 is voted (down) with a low score — must never be boosted.
+        # index 1 has NULL model_score — it is eligible.
+        ids = self._seed_items(
+            conn,
+            [0.05, None, 0.9, 0.95, 1.0],
+            votes={0: "down"},
+        )
+        dbmod.set_state(conn, "explore_pct", "100")
+        conn.commit()
+
+        boosted = model.apply_exploration(conn, rng=random.Random(3))
+        # Median of unvoted scores = 0.95 → eligible = {NULL-score item,
+        # 0.9 item}; pct=100 boosts both. The voted item is never touched.
+        assert boosted == 2
+        assert self._rank(conn, ids[0]) == 0.05  # voted item untouched
+        for item_id in (ids[1], ids[2]):
+            rank = self._rank(conn, item_id)
+            model_score = conn.execute(
+                "SELECT model_score FROM news_items WHERE id=?", (item_id,)
+            ).fetchone()[0]
+            assert rank is not None and rank > (model_score or 0.0)
+        for item_id in ids[3:]:
+            assert self._rank(conn, item_id) == conn.execute(
+                "SELECT model_score FROM news_items WHERE id=?", (item_id,)
+            ).fetchone()[0]
+
+    def test_zero_pct_mirrors_model_score(self, conn):
+        import random
+
+        ids = self._seed_items(conn, [0.2, 0.8, None])
+        dbmod.set_state(conn, "explore_pct", "0")
+        conn.commit()
+
+        boosted = model.apply_exploration(conn, rng=random.Random(1))
+        assert boosted == 0
+        assert self._rank(conn, ids[0]) == 0.2
+        assert self._rank(conn, ids[1]) == 0.8
+        assert self._rank(conn, ids[2]) is None
+
+    def test_no_scores_no_boost(self, conn):
+        import random
+
+        self._seed_items(conn, [None, None])
+        dbmod.set_state(conn, "explore_pct", "50")
+        conn.commit()
+        boosted = model.apply_exploration(conn, rng=random.Random(1))
+        assert boosted == 0

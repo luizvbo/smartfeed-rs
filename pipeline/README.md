@@ -84,6 +84,7 @@ DB_PATH=/path/to/news.db uv run --directory pipeline python pipeline/main.py
 | `MODEL_NAME`       | `paraphrase-multilingual-MiniLM-L12-v2` | sentence-transformers model name                        |
 | `BATCH_SIZE`       | `32`                                    | embedding batch size                                    |
 | `MAX_AGE_DAYS`     | `30`                                    | skip feed entries older than this                       |
+| `RETENTION_DAYS`   | `60`                                    | delete `news_items` older than this (never voted/opened) |
 | `RETRAIN_INTERVAL` | `0`                                     | retrain at most every N seconds (0 = only on new votes) |
 | `LOG_LEVEL`        | `INFO`                                  | logging level                                           |
 | `SCORING_METHOD`   | `centroid`                              | `centroid` (default) or `logistic` (needs scikit-learn) |
@@ -130,6 +131,32 @@ fallback scorer.
 Retraining is skipped unless the votes table changed since the last run
 (inserted, changed, or deleted votes — tracked via a `votes_fingerprint` key
 in `pipeline_state`), `RETRAIN_INTERVAL` has elapsed, or `--retrain` is passed.
+
+## Exploration (epsilon-greedy ranking)
+
+After every `score_all`, the pipeline recomputes `news_items.rank_score`:
+
+- Normally `rank_score = model_score`.
+- For a randomly selected `explore_pct`% of *unvoted, low-scored* items
+  (`model_score` NULL or below the median of unvoted items), `rank_score` is
+  drawn uniformly from the top decile of current scores — so a slice of
+  low-ranked items still surfaces in the score-sorted feed and the model gets
+  fresh signals instead of sitting in a local maximum.
+
+`explore_pct` lives in `pipeline_state` and is written by the web app
+(`POST /settings`, percent 0–100, default 10) — the pipeline re-reads it on
+each run, so changes take effect without restarting anything. Voted items are
+never boosted. The web app orders "Top score" by
+`COALESCE(rank_score, model_score)` and badges boosted cards `explore` while
+showing the real `model_score`.
+
+## Retention cleanup
+
+Each run ends with `cleanup_expired_items`: `news_items` older than
+`RETENTION_DAYS` (by `COALESCE(published_at, fetched_at)`) are deleted —
+**unless** they have a vote or `opened_at` set. Embeddings cascade via the FK;
+votes have no FK so orphan votes are deleted explicitly. A
+`PRAGMA wal_checkpoint(TRUNCATE)` follows the cleanup.
 
 ## Shared schema with the Rust app
 

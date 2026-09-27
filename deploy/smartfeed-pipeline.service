@@ -1,0 +1,17 @@
+[Unit]
+Description=SmartFeed data pipeline (RSS ingest, embeddings, scoring)
+After=network.target smartfeed-web.service
+
+[Service]
+Type=simple
+# Adjust WorkingDirectory and the uv path to your install location.
+WorkingDirectory=/opt/smartfeed-rs
+ExecStart=/usr/bin/uv run --directory pipeline python pipeline/main.py --loop 300
+Environment=DB_PATH=/var/lib/smartfeed/news.db
+Environment=LOG_LEVEL=INFO
+Restart=always
+RestartSec=15
+# User=smartfeed
+
+[Install]
+WantedBy=multi-user.target

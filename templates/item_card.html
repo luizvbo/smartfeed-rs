@@ -23,6 +23,9 @@
     {% if let Some(score) = item.score_text() %}
     <span class="score">Score: {{ score }}</span>
     {% endif %}
+    {% if item.exploring() %}
+    <span class="explore-badge">explore</span>
+    {% endif %}
   </div>
 
   <div class="card-actions">

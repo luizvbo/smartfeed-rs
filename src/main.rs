@@ -12,7 +12,8 @@ use tracing_subscriber::EnvFilter;
 
 use smartfeed::db::init_db;
 use smartfeed::handlers::{
-    feeds, index, item_detail, items_fragment, read_item, vote_item, AppState,
+    add_feed, feeds, index, item_detail, items_fragment, read_item, toggle_feed, update_settings,
+    vote_item, AppState,
 };
 
 #[tokio::main]
@@ -49,6 +50,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/items/{id}/vote", post(vote_item))
         .route("/read/{id}", get(read_item))
         .route("/feeds", get(feeds))
+        .route("/feeds", post(add_feed))
+        .route("/feeds/{id}/toggle", post(toggle_feed))
+        .route("/settings", post(update_settings))
         .nest_service("/static", ServeDir::new("static"))
         .layer(TraceLayer::new_for_http())
         .with_state(state);

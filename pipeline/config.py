@@ -23,6 +23,7 @@ REPO_ROOT = PY_DIR.parent
 DEFAULT_MODEL_NAME = "paraphrase-multilingual-MiniLM-L12-v2"
 DEFAULT_BATCH_SIZE = 32
 DEFAULT_MAX_AGE_DAYS = 30
+DEFAULT_RETENTION_DAYS = 60
 DEFAULT_RETRAIN_INTERVAL = 0
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_SCORING_METHOD = "centroid"
@@ -65,6 +66,7 @@ class Config:
     model_name: str
     batch_size: int
     max_age_days: int
+    retention_days: int
     retrain_interval: int
     log_level: str
     scoring_method: str
@@ -105,6 +107,7 @@ def load_config() -> Config:
         model_name=os.environ.get("MODEL_NAME") or DEFAULT_MODEL_NAME,
         batch_size=_env_int("BATCH_SIZE", DEFAULT_BATCH_SIZE),
         max_age_days=_env_int("MAX_AGE_DAYS", DEFAULT_MAX_AGE_DAYS),
+        retention_days=_env_int("RETENTION_DAYS", DEFAULT_RETENTION_DAYS),
         retrain_interval=_env_int("RETRAIN_INTERVAL", DEFAULT_RETRAIN_INTERVAL),
         log_level=(os.environ.get("LOG_LEVEL") or DEFAULT_LOG_LEVEL).upper(),
         scoring_method=scoring_method,

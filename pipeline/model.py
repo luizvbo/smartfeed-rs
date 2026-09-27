@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import pickle
+import random
 import sqlite3
 import time
 
@@ -25,11 +26,13 @@ import numpy as np
 
 from config import Config
 from db import (
+    get_explore_pct,
     get_state,
     list_all_item_ids,
     list_votes_with_embeddings,
     set_state,
     update_model_score,
+    update_rank_score,
 )
 from embed import Embedder, load_embedding
 
@@ -253,3 +256,74 @@ def score_all(conn: sqlite3.Connection, cfg: Config, embedder: Embedder) -> int:
     conn.commit()
     log.info("scored %d item(s) using %s strategy", scored, method)
     return scored
+
+
+def apply_exploration(
+    conn: sqlite3.Connection, rng: random.Random | None = None
+) -> int:
+    """Recompute ``rank_score`` for every item (epsilon-greedy exploration).
+
+    ``rank_score = model_score`` normally; but for a randomly selected
+    ``explore_pct``% of *unvoted, low-scored* items (``model_score`` NULL or
+    below the median of unvoted items) a synthetic ``rank_score`` is drawn
+    uniformly from the top decile of current scores — so a slice of
+    low-ranked items still interleaves with good items in the score-sorted
+    feed and the model gets fresh signals instead of sitting in a local
+    maximum. Returns the number of boosted items.
+    """
+    rng = rng or random.Random()
+    pct = get_explore_pct(conn)
+
+    rows = conn.execute(
+        """
+        SELECT ni.id, ni.model_score,
+               EXISTS(SELECT 1 FROM votes v WHERE v.news_item_id = ni.id) AS voted
+        FROM news_items ni
+        """
+    ).fetchall()
+    if not rows:
+        return 0
+
+    scores = sorted(
+        float(r["model_score"]) for r in rows if r["model_score"] is not None
+    )
+    unvoted = [r for r in rows if not r["voted"]]
+    unvoted_scores = sorted(
+        float(r["model_score"]) for r in unvoted if r["model_score"] is not None
+    )
+    median = unvoted_scores[len(unvoted_scores) // 2] if unvoted_scores else None
+
+    eligible = [
+        r
+        for r in unvoted
+        if r["model_score"] is None
+        or (median is not None and float(r["model_score"]) < median)
+    ]
+
+    # Synthetic boosts are drawn from the top decile of all current scores.
+    lo = hi = None
+    if scores:
+        top = scores[-max(1, len(scores) // 10) :]
+        lo, hi = top[0], top[-1]
+
+    boosted: set[int] = set()
+    if pct > 0 and eligible and lo is not None:
+        count = round(len(eligible) * pct / 100)
+        for r in rng.sample(eligible, count):
+            update_rank_score(
+                conn, r["id"], rng.uniform(lo, hi) if hi > lo else lo
+            )
+            boosted.add(r["id"])
+
+    for r in rows:
+        if r["id"] not in boosted:
+            update_rank_score(conn, r["id"], r["model_score"])
+
+    conn.commit()
+    log.info(
+        "exploration: %d of %d eligible low-ranked item(s) boosted (explore_pct=%.1f)",
+        len(boosted),
+        len(eligible),
+        pct,
+    )
+    return len(boosted)

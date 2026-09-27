@@ -12,6 +12,8 @@ The pipeline:
   2. Computes multilingual sentence embeddings and caches them.
   3. Trains a lightweight preference model on the user's votes.
   4. Scores every news item and updates ``news_items.model_score``.
+  5. Recomputes ``rank_score`` (epsilon-greedy exploration, ``explore_pct``).
+  6. Deletes expired items older than ``RETENTION_DAYS`` (never voted/opened).
 """
 
 from __future__ import annotations
@@ -32,7 +34,7 @@ if str(PY_DIR) not in sys.path:
 import db as dbmod
 from config import Config, load_config, setup_logging
 from embed import Embedder, compute_missing_embeddings
-from model import score_all, should_retrain, train
+from model import apply_exploration, score_all, should_retrain, train
 from rss import ingest_all
 
 log = logging.getLogger("smartfeed.pipeline")
@@ -79,8 +81,14 @@ def run_once(
         computed = compute_missing_embeddings(conn, embedder)
         log.info("embeddings: %d computed", computed)
 
-        # 3. Train if needed.
-        if should_retrain(conn, cfg, force=force_retrain):
+        # 3. Train if needed. The app can request a retrain via the
+        # pipeline_state flag (Rescore now button).
+        rescore = dbmod.get_state(conn, "rescore_requested") == "1"
+        if rescore:
+            dbmod.set_state(conn, "rescore_requested", "0")
+            conn.commit()
+            log.info("rescore requested by the app; forcing retrain")
+        if should_retrain(conn, cfg, force=force_retrain or rescore):
             log.info("training preference model")
             train(conn, cfg)
         else:
@@ -89,6 +97,15 @@ def run_once(
         # 4. Score every item.
         scored = score_all(conn, cfg, embedder)
         log.info("scoring complete: %d item(s) scored", scored)
+
+        # 5. Epsilon-greedy exploration: recompute rank_score so a slice of
+        # low-ranked items still surfaces in the score-sorted feed.
+        boosted = apply_exploration(conn)
+        log.info("exploration complete: %d item(s) boosted", boosted)
+
+        # 6. Retention cleanup (never touches voted/opened items).
+        deleted = dbmod.cleanup_expired_items(conn, cfg.retention_days)
+        log.info("cleanup complete: %d expired item(s) deleted", deleted)
     finally:
         conn.close()
 

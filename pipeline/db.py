@@ -8,12 +8,15 @@ and ``pipeline_state`` tables.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 
 from config import Config
+
+log = logging.getLogger(__name__)
 
 SCHEMA_SHARED: list[str] = [
     # news_items is owned jointly with the Rust app. Column names must match
@@ -29,6 +32,7 @@ SCHEMA_SHARED: list[str] = [
         published_at INTEGER,
         fetched_at   INTEGER NOT NULL,
         model_score  REAL,
+        rank_score   REAL,
         opened_at    INTEGER
     )
     """,
@@ -91,11 +95,21 @@ def connect(cfg: Config) -> sqlite3.Connection:
     return conn
 
 
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, ty: str) -> None:
+    """Add a column to an existing table (idempotent)."""
+    cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ty}")
+        log.info("added missing column %s.%s", table, column)
+
+
 def init_schema(conn: sqlite3.Connection) -> None:
     """Create all tables idempotently and seed pipeline_state."""
     cur = conn.cursor()
     for stmt in SCHEMA_SHARED + SCHEMA_PYTHON + SCHEMA_INDICES:
         cur.execute(stmt)
+    # Column-level migrations for databases created before a column existed.
+    _ensure_column(conn, "news_items", "rank_score", "REAL")
     cur.execute(
         "INSERT OR IGNORE INTO pipeline_state(key, value) VALUES ('last_train_at', '0')"
     )
@@ -284,3 +298,77 @@ def update_model_score(
     conn.execute(
         "UPDATE news_items SET model_score=? WHERE id=?", (score, news_item_id)
     )
+
+
+def update_rank_score(
+    conn: sqlite3.Connection, news_item_id: int, score: float | None
+) -> None:
+    conn.execute(
+        "UPDATE news_items SET rank_score=? WHERE id=?", (score, news_item_id)
+    )
+
+
+# --- settings / cleanup ---------------------------------------------------
+
+DEFAULT_EXPLORE_PCT = 10.0
+
+
+def get_explore_pct(conn: sqlite3.Connection) -> float:
+    """Percent of low-ranked items the exploration step boosts.
+
+    Written by the Rust app into ``pipeline_state``; clamped to 0-100.
+    """
+    raw = get_state(conn, "explore_pct")
+    if raw is None:
+        return DEFAULT_EXPLORE_PCT
+    try:
+        pct = float(raw)
+    except ValueError:
+        log.warning("invalid explore_pct=%r, using default %s", raw, DEFAULT_EXPLORE_PCT)
+        return DEFAULT_EXPLORE_PCT
+    return max(0.0, min(100.0, pct))
+
+
+def cleanup_expired_items(conn: sqlite3.Connection, retention_days: int) -> int:
+    """Delete news_items older than ``retention_days``.
+
+    Items with a vote or ``opened_at`` set are never deleted — they carry
+    user intent. Embeddings cascade via the FK; votes have no FK, so orphan
+    votes (e.g. left by earlier deletions) are removed explicitly. Finishes
+    with ``PRAGMA wal_checkpoint(TRUNCATE)``. Returns the number of items
+    deleted.
+    """
+    if retention_days <= 0:
+        return 0
+    cutoff = now() - retention_days * 86400
+
+    ids = [
+        r[0]
+        for r in conn.execute(
+            """
+            SELECT ni.id FROM news_items ni
+            WHERE COALESCE(ni.published_at, ni.fetched_at) < ?
+              AND ni.opened_at IS NULL
+              AND NOT EXISTS (SELECT 1 FROM votes v WHERE v.news_item_id = ni.id)
+            """,
+            (cutoff,),
+        ).fetchall()
+    ]
+    if ids:
+        marks = ",".join("?" for _ in ids)
+        conn.execute(f"DELETE FROM news_items WHERE id IN ({marks})", ids)
+
+    orphans = conn.execute(
+        "DELETE FROM votes WHERE news_item_id NOT IN (SELECT id FROM news_items)"
+    ).rowcount
+
+    conn.commit()
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchall()
+
+    log.info(
+        "cleanup: %d item(s) older than %d day(s) deleted, %d orphan vote(s) removed",
+        len(ids),
+        retention_days,
+        orphans,
+    )
+    return len(ids)

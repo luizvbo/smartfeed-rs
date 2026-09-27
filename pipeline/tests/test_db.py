@@ -15,6 +15,29 @@ class TestSchema:
         }
         assert {"news_items", "feeds", "votes", "news_item_embeddings", "pipeline_state"} <= tables
 
+    def test_rank_score_column(self, conn):
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(news_items)")}
+        assert "rank_score" in cols
+
+    def test_rank_score_migration_adds_column(self):
+        # Existing DBs created before rank_score existed get an idempotent ALTER.
+        c = dbmod.connect(type("Cfg", (), {"db_path": ":memory:"}))
+        c.execute(
+            """
+            CREATE TABLE news_items (
+                id INTEGER PRIMARY KEY, title TEXT NOT NULL,
+                url TEXT NOT NULL UNIQUE, source_feed TEXT NOT NULL,
+                summary TEXT, image_url TEXT, published_at INTEGER,
+                fetched_at INTEGER NOT NULL, model_score REAL, opened_at INTEGER
+            )
+            """
+        )
+        c.commit()
+        dbmod.init_schema(c)
+        cols = {r[1] for r in c.execute("PRAGMA table_info(news_items)")}
+        c.close()
+        assert "rank_score" in cols
+
     def test_wal_mode(self, conn):
         # in-memory db falls back to "memory" journal mode
         row = conn.execute("PRAGMA journal_mode").fetchone()
@@ -192,6 +215,111 @@ class TestVotesAndState:
     def test_state_get_set(self, conn):
         dbmod.set_state(conn, "last_train_at", "12345")
         assert dbmod.get_state(conn, "last_train_at") == "12345"
+
+
+class TestSettings:
+    def test_explore_pct_default(self, conn):
+        assert dbmod.get_explore_pct(conn) == dbmod.DEFAULT_EXPLORE_PCT
+
+    def test_explore_pct_reads_pipeline_state(self, conn):
+        dbmod.set_state(conn, "explore_pct", "15.5000")
+        assert dbmod.get_explore_pct(conn) == 15.5
+
+    def test_explore_pct_clamped_and_invalid(self, conn):
+        dbmod.set_state(conn, "explore_pct", "250")
+        assert dbmod.get_explore_pct(conn) == 100.0
+        dbmod.set_state(conn, "explore_pct", "abc")
+        assert dbmod.get_explore_pct(conn) == dbmod.DEFAULT_EXPLORE_PCT
+
+
+class TestCleanup:
+    def _item(self, conn, url, published_at, opened_at=None):
+        dbmod.upsert_feed(conn, "https://example.com/feed.xml", "Example")
+        dbmod.insert_news_item(
+            conn,
+            title="T",
+            url=url,
+            source_feed="https://example.com/feed.xml",
+            summary=None,
+            image_url=None,
+            published_at=published_at,
+        )
+        item_id = conn.execute(
+            "SELECT id FROM news_items WHERE url=?", (url,)
+        ).fetchone()[0]
+        if opened_at is not None:
+            conn.execute(
+                "UPDATE news_items SET opened_at=? WHERE id=?", (opened_at, item_id)
+            )
+        return item_id
+
+    def test_deletes_old_unvoted_items_and_cascades_embeddings(self, conn):
+        import time
+
+        old = int(time.time()) - 90 * 86400
+        item_id = self._item(conn, "https://example.com/old", old)
+        dbmod.upsert_embedding(conn, item_id, b"\x00" * 12)
+        conn.commit()
+
+        deleted = dbmod.cleanup_expired_items(conn, 60)
+        assert deleted == 1
+        assert conn.execute(
+            "SELECT 1 FROM news_items WHERE id=?", (item_id,)
+        ).fetchone() is None
+        assert conn.execute(
+            "SELECT 1 FROM news_item_embeddings WHERE news_item_id=?", (item_id,)
+        ).fetchone() is None
+
+    def test_keeps_voted_opened_and_recent_items(self, conn):
+        import time
+
+        old = int(time.time()) - 90 * 86400
+        now = int(time.time())
+        voted = self._item(conn, "https://example.com/voted", old)
+        conn.execute(
+            "INSERT INTO votes(news_item_id, vote, created_at) VALUES (?, 'down', ?)",
+            (voted, now),
+        )
+        opened = self._item(conn, "https://example.com/opened", old, opened_at=now)
+        recent = self._item(conn, "https://example.com/recent", now)
+        conn.commit()
+
+        deleted = dbmod.cleanup_expired_items(conn, 60)
+        assert deleted == 0
+        remaining = {
+            r[0]
+            for r in conn.execute("SELECT id FROM news_items").fetchall()
+        }
+        assert {voted, opened, recent} <= remaining
+        # The vote on the kept item survives.
+        assert conn.execute(
+            "SELECT 1 FROM votes WHERE news_item_id=?", (voted,)
+        ).fetchone() is not None
+
+    def test_removes_orphan_votes(self, conn):
+        import time
+
+        now = int(time.time())
+        # An orphan vote pointing at a deleted/absent item.
+        conn.execute(
+            "INSERT INTO votes(news_item_id, vote, created_at) VALUES (999, 'up', ?)",
+            (now,),
+        )
+        conn.commit()
+
+        dbmod.cleanup_expired_items(conn, 60)
+        assert conn.execute(
+            "SELECT 1 FROM votes WHERE news_item_id=999"
+        ).fetchone() is None
+
+    def test_zero_retention_is_noop(self, conn):
+        import time
+
+        old = int(time.time()) - 90 * 86400
+        self._item(conn, "https://example.com/old", old)
+        conn.commit()
+        assert dbmod.cleanup_expired_items(conn, 0) == 0
+        assert conn.execute("SELECT COUNT(*) FROM news_items").fetchone()[0] == 1
 
 
 class TestTransaction:

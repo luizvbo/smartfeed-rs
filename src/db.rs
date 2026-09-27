@@ -66,6 +66,39 @@ async fn ensure_schema(db: &mut toasty::Db) -> anyhow::Result<()> {
         tracing::info!("schema already present");
     }
 
+    // Column-level migrations for databases created before a column existed
+    // (covers both the push_schema and the pipeline-created paths).
+    ensure_column(db, "news_items", "rank_score", "REAL").await?;
+
+    Ok(())
+}
+
+async fn ensure_column(
+    db: &mut toasty::Db,
+    table: &str,
+    column: &str,
+    ty: &str,
+) -> anyhow::Result<()> {
+    let rows = toasty::sql::query(format!("PRAGMA table_info({table})"))
+        .exec(db)
+        .await
+        .with_context(|| format!("failed to read table_info({table})"))?;
+
+    let exists = rows.iter().any(|row| {
+        row.as_record()
+            .and_then(|record| record.get(1))
+            .and_then(|value| value.as_str())
+            == Some(column)
+    });
+
+    if !exists {
+        toasty::sql::statement(format!("ALTER TABLE {table} ADD COLUMN {column} {ty}"))
+            .exec(db)
+            .await
+            .with_context(|| format!("failed to add column {table}.{column}"))?;
+        tracing::info!(%table, %column, "added missing column");
+    }
+
     Ok(())
 }
 
@@ -90,6 +123,7 @@ const NEWS_ITEMS_DDL: &[&str] = &[
     "published_at" BIGINT,
     "fetched_at" BIGINT NOT NULL,
     "model_score" REAL,
+    "rank_score" REAL,
     "opened_at" BIGINT
 );"#,
     r#"CREATE UNIQUE INDEX IF NOT EXISTS "index_news_items_by_url" ON "news_items" ("url");"#,
