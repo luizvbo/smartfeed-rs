@@ -27,13 +27,13 @@ jobs:
       RUSTDOCFLAGS: '-D warnings'
 
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@v6.0.3
         with:
           persist-credentials: false
 
       - run: rustup show
 
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: Swatinem/rust-cache@v2.9.1
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -50,17 +50,17 @@ jobs:
       CARGO_AUDIT_VERSION: 0.22.2
 
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@v6.0.3
         with:
           persist-credentials: false
 
       - run: rustup show
 
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: Swatinem/rust-cache@v2.9.1
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - uses: taiki-e/install-action@a2a5f6e99e1a31540baa0468acfa302cff0f359f # v2.86.4
+      - uses: taiki-e/install-action@v2.86.4
         with:
           tool: cargo-machete@${{ env.CARGO_MACHETE_VERSION }},cargo-audit@${{ env.CARGO_AUDIT_VERSION }},zizmor
 
@@ -79,17 +79,17 @@ jobs:
       RUSTFLAGS: '-D warnings'
 
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@v6.0.3
         with:
           persist-credentials: false
 
       - run: rustup show
 
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: Swatinem/rust-cache@v2.9.1
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - uses: taiki-e/install-action@a2a5f6e99e1a31540baa0468acfa302cff0f359f # v2.86.4
+      - uses: taiki-e/install-action@v2.86.4
         with:
           tool: cargo-llvm-cov,cargo-nextest
 
@@ -101,15 +101,15 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@v6.0.3
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@0b93645e9fea7318f78e0c49f566a43a87239f6d # v5.3.0
+      - uses: actions/setup-python@v5.3.0
         with:
           python-version: '3.13'
 
-      - uses: astral-sh/setup-uv@f94e62d4a12df8abe8dd2084f454851cd88ac8b8 # v4.0.0
+      - uses: astral-sh/setup-uv@v4.0.0
         with:
           enable-cache: true
 
