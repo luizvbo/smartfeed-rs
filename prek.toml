@@ -1,0 +1,45 @@
+minimum_prek_version = "0.1.0"
+default_install_hook_types = ["pre-push"]
+
+[[repos]]
+repo = "local"
+
+[[repos.hooks]]
+id = "cargo-fmt"
+name = "cargo fmt check"
+language = "system"
+entry = "cargo"
+args = ["fmt", "--", "--check"]
+pass_filenames = false
+always_run = true
+stages = ["pre-push"]
+
+[[repos.hooks]]
+id = "cargo-clippy"
+name = "cargo clippy"
+language = "system"
+entry = "cargo"
+args = ["clippy", "--all-targets", "--all-features"]
+pass_filenames = false
+always_run = true
+stages = ["pre-push"]
+
+[[repos.hooks]]
+id = "cargo-llvm-cov"
+name = "rust tests with coverage"
+language = "system"
+entry = "cargo"
+args = ["llvm-cov", "--all-features", "--workspace", "nextest", "--lcov", "--output-path", "lcov.info", "--ignore-filename-regex", "src/(main|bin/seed)\\.rs", "--fail-under-lines", "80"]
+pass_filenames = false
+always_run = true
+stages = ["pre-push"]
+
+[[repos.hooks]]
+id = "python-test"
+name = "python tests with coverage"
+language = "system"
+entry = "sh"
+args = ["-c", "cd pipeline && uv run pytest --cov=config --cov=db --cov=rss --cov=embed --cov=model --cov-report=term --cov-fail-under=80 tests"]
+pass_filenames = false
+always_run = true
+stages = ["pre-push"]

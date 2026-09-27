@@ -1,0 +1,10 @@
+# zizmor configuration — https://docs.zizmor.sh/configuration/
+#
+# Actions in .github/workflows/ are pinned by version tag rather than commit
+# SHA. Tags are mutable, so this trades a bit of supply-chain hardening for
+# readability and simple version bumps — acceptable for a personal project.
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        "*": ref-pin

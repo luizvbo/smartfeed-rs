@@ -18,6 +18,30 @@ target
 # Contains mutation testing data
 **/mutants.out*/
 
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+pipeline/.venv/
+pipeline/.env
+pipeline/.cache/
+pipeline/*.egg-info/
+pipeline/build/
+pipeline/dist/
+
+# pytest-cov
+.coverage
+pipeline/.coverage
+
+# cargo-llvm-cov
+lcov.info
+cobertura.xml
+codecov.json
+
+# Live SQLite database (also covered by *.db above, listed explicitly for clarity)
+news.db
+news.db-*
+
 # RustRover
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore

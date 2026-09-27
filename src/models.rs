@@ -16,11 +16,16 @@ pub struct NewsItem {
 
     pub image_url: Option<String>,
 
-    pub published_at: i64,
+    pub published_at: Option<i64>,
 
     pub fetched_at: i64,
 
     pub model_score: Option<f64>,
+
+    /// Ranking score used for the "Top score" sort. Written by the Python
+    /// pipeline; may differ from `model_score` when the item was boosted by
+    /// the epsilon-greedy exploration step.
+    pub rank_score: Option<f64>,
 
     pub opened_at: Option<i64>,
 }

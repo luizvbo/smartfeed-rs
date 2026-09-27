@@ -1,6 +1,6 @@
 # SmartFeed
 
-A mobile-first, server-rendered personal news reader built in Rust. It reads from a SQLite database that is shared with a separate Python data pipeline, so the Rust layer is intentionally thin and read-mostly.
+A mobile-first, server-rendered personal news reader built in Rust. It reads from a SQLite database that is shared with a companion Python data pipeline in [`pipeline/`](pipeline/), so the Rust layer is intentionally thin and read-mostly.
 
 ## Tech stack
 
@@ -31,7 +31,7 @@ The server listens on `127.0.0.1:3000` by default. Open http://127.0.0.1:3000 in
 
 ## Seeding sample data
 
-Because the Python pipeline is not part of this repo, a seed binary is provided to insert sample rows so the UI is visible immediately:
+If you have not run the Python pipeline yet (see `pipeline/README.md` for ingestion and scoring), a seed binary is provided to insert sample rows so the UI is visible immediately:
 
 ```bash
 cargo run --bin seed
@@ -58,14 +58,31 @@ The expected schema is defined by the toasty models in `src/models.rs`. The Pyth
 - `GET /items/{id}` - detail page for a single item
 - `POST /items/{id}/vote` - vote `up` or `down` (returns re-rendered card for HTMX, redirect otherwise)
 - `GET /read/{id}` - marks the item as opened (sets `opened_at`) and returns an HTTP 302 redirect to the original URL
-- `GET /feeds` - list of configured feeds
+- `GET /feeds` - list of configured feeds (with add-feed form and per-feed enable/disable toggle)
+- `POST /feeds` - register a feed URL (the pipeline ingests it on its next run)
+- `POST /feeds/{id}/toggle` - flip `feeds.is_active`; the pipeline skips disabled feeds
+- `POST /settings` - saves `explore_pct` (0-100) to `pipeline_state` for the pipeline's exploration step; the "Rescore now" button additionally sets `rescore_requested=1`, which the pipeline clears and honors by forcing retrain+score on its next loop iteration
 - `GET /static/*` - static assets served from `static/`
 
 Query parameters:
 
-- `filter=all|opened` (default `all`)
+- `filter=all|opened|voted` (default `all`)
 - `sort=new|score` (default `new`)
 - `page` (1-indexed, default `1`, page size `15`)
+
+## Exploration (epsilon-greedy ranking)
+
+To avoid filter-bubble local maxima, the "Top score" sort doesn't rank by `model_score` alone. The pipeline maintains a `rank_score` column: equal to `model_score` normally, but a configurable percentage (`explore_pct`, default 10%) of unvoted, low-scored items receives a synthetic boost into the top-decile range so they still surface and can collect votes.
+
+- `explore_pct` is set from the app — the small form under the filter bar writes it to `pipeline_state` (`POST /settings`). The pipeline reads it on every run, so no restart is needed on either side.
+- `sort=score` orders by `COALESCE(rank_score, model_score) DESC` — backfill-safe for rows scored before the column existed.
+- Boosted cards show a subtle `explore` badge; the `Score:` label always keeps showing the true `model_score`.
+
+## Filters
+
+- `all` (default) hides items that already have a vote — rated items don't resurface.
+- `opened` lists items the user clicked through (`opened_at` set) and has not yet voted on, most recent first — for rating after returning from an external tab.
+- `voted` shows only items that have a vote.
 
 ## Mobile-first design notes
 
@@ -84,5 +101,22 @@ Query parameters:
 
 ## Production notes
 
-- `db.push_schema()` is used for the MVP. For a real deployment, switch to toasty's migration workflow.
+- `db.push_schema()` is used for the MVP. For a real deployment, switch to toasty's migration workflow. Columns added later (e.g. `rank_score`) are covered by an idempotent `PRAGMA table_info` + `ALTER TABLE` check in `init_db`.
 - `toasty::Db` is held in an `Arc` and cloned per handler because it is cheap to clone.
+
+## Running on a home server (systemd)
+
+`deploy/` contains two unit files:
+
+- `deploy/smartfeed-web.service` — runs `target/release/smartfeed` with `DATABASE_URL`/`HOST`/`PORT` env, `Restart=always`.
+- `deploy/smartfeed-pipeline.service` — runs `uv run --directory pipeline python pipeline/main.py --loop 300` with `WorkingDirectory` at the repo root, `Restart=always`.
+
+```bash
+cargo build --release
+sudo cp deploy/smartfeed-{web,pipeline}.service /etc/systemd/system/
+sudo $EDITOR /etc/systemd/system/smartfeed-*.service   # adjust paths/User
+sudo systemctl daemon-reload
+sudo systemctl enable --now smartfeed-web smartfeed-pipeline
+```
+
+For LAN access, set `HOST=0.0.0.0` in the web unit. If the app is exposed beyond the LAN, put it behind Caddy (TLS) or Tailscale and add authentication — the app has no built-in auth and should not be wide open on the internet.

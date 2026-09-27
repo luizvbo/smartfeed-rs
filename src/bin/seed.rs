@@ -116,7 +116,7 @@ async fn main() -> anyhow::Result<()> {
             .source_feed(source.to_string())
             .summary(summary.map(String::from))
             .image_url(image.map(String::from))
-            .published_at(published)
+            .published_at(Some(published))
             .fetched_at(fetched)
             .model_score(score)
             .opened_at(None)

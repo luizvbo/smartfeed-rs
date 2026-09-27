@@ -5,21 +5,33 @@
 {% block content %}
 <h1 class="page-title">Feeds</h1>
 
+<form class="feed-add" method="post" action="/feeds">
+  <input class="feed-add-input" type="url" name="url" required
+         placeholder="https://example.com/feed.xml" aria-label="Feed URL">
+  <button class="settings-save" type="submit">Add feed</button>
+</form>
+
 <ul class="feed-list">
 {% for feed in feeds %}
   <li class="feed-item">
-    <a class="feed-url" href="{{ feed.url }}" target="_blank" rel="noopener noreferrer">
-      {{ feed.title.as_deref().unwrap_or(&feed.url) }}
+    <a class="feed-url" href="{{ feed.feed.url }}" target="_blank" rel="noopener noreferrer">
+      {{ feed.feed.title.as_deref().unwrap_or(&feed.feed.url) }}
     </a>
     <div class="feed-meta">
-      {% if let Some(status) = feed.last_status %}
+      {% if !feed.feed.is_active %}
+      <span class="feed-status">disabled</span>
+      {% endif %}
+      {% if let Some(status) = feed.feed.last_status %}
       <span class="feed-status">{{ status }}</span>
       {% endif %}
-      {% if let Some(last_fetch) = feed.last_fetch %}
-      <span class="feed-last-fetch">{{ last_fetch }}</span>
-      {% endif %}
+      <span class="feed-last-fetch">{{ feed.last_fetch_human() }}</span>
+      <form class="feed-toggle" method="post" action="/feeds/{{ feed.feed.id }}/toggle">
+        <button class="feed-toggle-btn" type="submit">
+          {% if feed.feed.is_active %}Disable{% else %}Enable{% endif %}
+        </button>
+      </form>
     </div>
-    {% if let Some(err) = feed.error_message %}
+    {% if let Some(err) = feed.feed.error_message %}
     <p class="feed-error">{{ err }}</p>
     {% endif %}
   </li>

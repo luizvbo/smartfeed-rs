@@ -3,6 +3,12 @@ name = "smartfeed"
 version = "0.1.0"
 edition = "2021"
 default-run = "smartfeed"
+exclude = ["pipeline", "news.db", "news.db-*", ".venv"]
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+tempfile = "3"
 
 [dependencies]
 anyhow = "1"

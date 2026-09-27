@@ -1,0 +1,19 @@
+[Unit]
+Description=SmartFeed web app (Rust axum)
+After=network.target
+
+[Service]
+Type=simple
+# Adjust WorkingDirectory/ExecStart/User to your install location.
+WorkingDirectory=/opt/smartfeed-rs
+ExecStart=/opt/smartfeed-rs/target/release/smartfeed
+Environment=DATABASE_URL=sqlite:/var/lib/smartfeed/news.db
+Environment=HOST=0.0.0.0
+Environment=PORT=3000
+Environment=RUST_LOG=info,tower_http=debug,toasty=warn
+Restart=always
+RestartSec=5
+# User=smartfeed
+
+[Install]
+WantedBy=multi-user.target
